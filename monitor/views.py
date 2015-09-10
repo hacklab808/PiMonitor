@@ -1,9 +1,11 @@
 ﻿import json
+import psutil
+import math
 
+from datetime import datetime
 from django.views.generic import TemplateView
 from django.http import HttpResponse
 
-from monitor.models import MemoryLog, SwapLog, CpuLog
 import psutil
 
 def convert_to_mb(byte_size):
@@ -14,51 +16,52 @@ class SummaryView(TemplateView):
     template_name = 'monitor/summary.html'
 
 def memory_data(request):
-    if request.is_ajax():
-        memory_data = {}
-        current_memory_log = MemoryLog.objects.all()[0]
-        memory_data.update({
-            'used_memory_percent': current_memory_log.percent,
-            'used_memory': convert_to_mb(
-                current_memory_log.total - current_memory_log.available
-            ),
-            'total_memory': convert_to_mb(current_memory_log.total),
-            'tasks_num': current_memory_log.tasks_num,
-            'uptime': str(current_memory_log.uptime),
-        })
+    memory = psutil.virtual_memory()
+    boot_time = psutil.boot_time()
+    uptime = datetime.now() - datetime.fromtimestamp(boot_time)
+    hours = uptime.seconds / 3600
+    minutes = (hours - math.floor(hours)) * 60
+    seconds = (minutes - math.floor(minutes)) * 60
 
-        return HttpResponse(json.dumps(memory_data), content_type='application/json')
+    memory_data = {
+        'used_memory_percent': memory.percent,
+        'used_memory': convert_to_mb(memory.total - memory.available),
+        'total_memory': convert_to_mb(memory.total),
+        'tasks_num': len(psutil.pids()),
+        'uptime': '{days} days {hours:02.0f}:{minutes:02.0f}:{seconds:02.0f}'.format(
+            days=uptime.days, hours=hours,
+            minutes=minutes, seconds=seconds
+        ),
+    }
+
+    return HttpResponse(json.dumps(memory_data), content_type='application/json')
 
 def swap_data(request):
-    if request.is_ajax():
-        swap_data = {}
-        current_swap_log = SwapLog.objects.all()[0]
-        swap_data.update({
-            'used_swap_percent': current_swap_log.percent,
-            'used_swap': convert_to_mb(current_swap_log.used),
-            'total_swap': convert_to_mb(current_swap_log.total),
-        })
+    swap = psutil.swap_memory()
 
-        return HttpResponse(json.dumps(swap_data), content_type='application/json')
+    swap_data = {
+        'used_swap_percent': swap.percent,
+        'used_swap': convert_to_mb(swap.used),
+        'total_swap': convert_to_mb(swap.total),
+    }
+
+    return HttpResponse(json.dumps(swap_data), content_type='application/json')
 
 def cpu_data(request):
-    if request.is_ajax():
-        cpu_data = {}
-        current_cpu_log = CpuLog.objects.all()[0]
-        cpu_data.update({
-            'cpu_percent': current_cpu_log.get_percents(),
-        })
+    cpu = psutil.cpu_percent(percpu=True)
+    cpu_data = {
+        'cpu_percent': cpu,
+    }
 
-        return HttpResponse(json.dumps(cpu_data), content_type='application/json')
+    return HttpResponse(json.dumps(cpu_data), content_type='application/json')
 
 def net_data(request):
-    if request.is_ajax():
-        net_data = {}
-        net = psutil.net_io_counters()
+    net_data = {}
+    net = psutil.net_io_counters()
 
-        net_data.update({
-            'bytes_recv': net.bytes_recv,
-            'bytes_sent': net.bytes_sent,
-        })
+    net_data.update({
+        'bytes_recv': net.bytes_recv,
+        'bytes_sent': net.bytes_sent,
+    })
 
-        return HttpResponse(json.dumps(net_data), content_type='application/json')
+    return HttpResponse(json.dumps(net_data), content_type='application/json')
